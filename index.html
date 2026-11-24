@@ -94,6 +94,9 @@
   .opt { width: 38px; height: 40px; display: grid; place-items: center; align-self: center; border-radius: 10px; }
   .opt .sw { width: 26px; height: 26px; }
   .opt.on .sw { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--ink); }
+  .opt.custom { position: relative; cursor: pointer; }
+  .opt.custom .sw { border: 3px solid transparent; background: conic-gradient(#e0262f, #ffa53d, #ffe94a, #16924a, #1f5fd6, #7b3fc4, #e0262f); }
+  .opt.custom input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; border: 0; padding: 0; pointer-events: none; }
   .opt.size.on { background: var(--tint-soft); }
   .stroke { display: block; width: 22px; border-radius: 99px; transform: rotate(-35deg); }
   .opt img { width: 30px; }
@@ -197,10 +200,11 @@ const RULES = [['Lisa','lisa'],['Rayas','rayas'],['Cuadros','cuadros'],['Puntos'
 const PENS = {
   boli: [['Azul','#22388f'],['Negro','#1d1d1f'],['Rojo','#d0202e'],['Verde','#1f7a3d']],
   pluma: [['Azul','#1f4fd1'],['Negro','#151515'],['Sepia','#6b4a2f'],['Burdeos','#7a1f3d']],
+  marca: [['Negro','#1d1d1f'],['Azul','#1f5fd6'],['Rojo','#e0262f'],['Verde','#16924a'],['Morado','#7b3fc4']],
   rotu: [['Amarillo','#ffe94a'],['Rosa','#ff7ac8'],['Verde','#8cf25a'],['Naranja','#ffa53d'],['Azul','#6cc6ff']],
 };
-const TOOLS = { boli: 'Boli', pluma: 'Pluma', rotu: 'Subrayador', goma: 'Goma', sticker: 'Stickers' };
-const SIZES = { boli: [1.8, 2.8, 4.5], pluma: [4, 7, 11], rotu: [10, 16, 24], goma: [12, 24, 45], sticker: [12, 18, 26] };
+const TOOLS = { boli: 'Boli', pluma: 'Pluma', marca: 'Rotulador', rotu: 'Subrayador', goma: 'Goma', sticker: 'Stickers' };
+const SIZES = { boli: [1.8, 2.8, 4.5], pluma: [4, 7, 11], marca: [3, 5, 8], rotu: [10, 16, 24], goma: [12, 24, 45], sticker: [12, 18, 26] };
 const STICKERS = [...['rana','rana-flores','ranas-abrazo','rana-seta','rana-lectora','rana-te','rana-dormida','rana-estudia','rana-fresa',
   'corazon-lesbico','ramo','setas','mariposa','caracol','cesta','libros','carta','venus'].map(n => 'img:' + n), 'bandera', ...'✅ ❗ ❓ ⭐ 📌'.split(' ')];
 
@@ -220,9 +224,9 @@ const el = (tag, cls = '', html = '') => { const e = document.createElement(tag)
 
 // Preferencias: comodidad, no datos. Si localStorage falla, se usan las de serie.
 let state = { tool: 'boli', sticker: 'img:rana', min: false,
-  colors: { boli: '#22388f', pluma: '#1f4fd1', rotu: '#ffe94a' },
-  size: { boli: 2.8, pluma: 7, rotu: 16, goma: 24, sticker: 18 } };
-try { const s = JSON.parse(localStorage.getItem('prefs4')); if (s) state = { ...state, ...s, colors: { ...state.colors, ...s.colors }, size: { ...state.size, ...s.size } }; } catch {}
+  colors: { boli: '#22388f', pluma: '#1f4fd1', marca: '#1d1d1f', rotu: '#ffe94a' }, custom: {},
+  size: { boli: 2.8, pluma: 7, marca: 5, rotu: 16, goma: 24, sticker: 18 } };
+try { const s = JSON.parse(localStorage.getItem('prefs4')); if (s) state = { ...state, ...s, colors: { ...state.colors, ...s.colors }, custom: { ...s.custom }, size: { ...state.size, ...s.size } }; } catch {}
 const persist = () => { try { localStorage.setItem('prefs4', JSON.stringify(state)); } catch {} };
 const ink = () => state.colors[state.tool];
 
@@ -320,6 +324,7 @@ function width(it, p, i) {
     case 'goma': return it.w * 2;
     case 'pluma': { const a = p[Math.max(0, i - 3)], ang = Math.atan2(b[1] - a[1], b[0] - a[0]); // plumín a 45°
       return Math.max(.7, it.w * (.14 + .86 * Math.abs(Math.sin(ang + Math.PI / 4))) * (.55 + .9 * pr)); }
+    case 'marca': return it.w * (.9 + .2 * pr); // rotulador: punta de fieltro, grosor parejo
     default: return it.w * (.7 + .6 * pr); // boli: casi constante, como uno de verdad
   }
 }
@@ -630,6 +635,9 @@ function penSvg(tool, c, ht) {
       <rect x="6.5" y="16" width="2" height="50" rx="1" fill="rgba(255,255,255,.3)"/>`,
     rotu: `<path d="M6 9 L14 3 L14 10 L6 10 Z" fill="${c}"/><rect x="3" y="10" width="14" height="61.5" rx="3.5" fill="${c}"/>
       <rect x="3" y="30" width="14" height="22" fill="rgba(255,255,255,.5)"/><rect x="5" y="13" width="2.5" height="55" rx="1.2" fill="rgba(255,255,255,.35)"/>`,
+    marca: `<path d="M8.5 0 L11.5 0 L13 8 L7 8 Z" fill="${c}"/><path d="M6 8 L14 8 L15 14 L5 14 Z" fill="#d9d4cc"/>
+      <rect x="4.5" y="14" width="11" height="57.5" rx="2.5" fill="${c}"/><rect x="4.5" y="28" width="11" height="16" fill="rgba(255,255,255,.75)"/>
+      <rect x="6.5" y="16" width="2" height="52" rx="1" fill="rgba(255,255,255,.3)"/>`,
     goma: `<rect x="3" y="12" width="14" height="46" rx="3" fill="#f4b3c3"/><rect x="3" y="36" width="14" height="22" rx="3" fill="#9db9e8"/><rect x="3" y="34" width="14" height="4" fill="#9db9e8"/>
       <rect x="5" y="14" width="2.5" height="42" rx="1.2" fill="rgba(255,255,255,.4)"/>`,
   }[tool];
@@ -662,7 +670,17 @@ function buildDock() {
     b.onclick = () => { state.colors[t] = c; persist(); buildDock(); };
     dock.append(b);
   }
-  if (PENS[t]) dock.append(el('span', 'vsep'));
+  const RAINBOW = 'conic-gradient(#e0262f, #ffa53d, #ffe94a, #16924a, #1f5fd6, #7b3fc4, #e0262f)';
+  if (PENS[t]) { // color a elegir: abre el selector del sistema y se queda guardado para ese útil
+    const own = state.custom[t], b = el('label', 'opt custom' + (own && ink() === own ? ' on' : ''), '<span class="sw"></span><input type="color">');
+    if (own) b.firstChild.style.background = `linear-gradient(${own}, ${own}) padding-box, ${RAINBOW} border-box`;
+    b.setAttribute('aria-label', 'Otro color'); b.title = 'Otro color';
+    const inp = b.querySelector('input'); inp.value = own || ink();
+    inp.onchange = () => { state.custom[t] = state.colors[t] = inp.value; persist(); buildDock(); };
+    // primer toque: vuelve a su color; el segundo abre el selector
+    b.onclick = e => { if (own && ink() !== own) { e.preventDefault(); state.colors[t] = own; persist(); buildDock(); } };
+    dock.append(b, el('span', 'vsep'));
+  }
   SIZES[t].forEach((v, i) => {
     const b = el('button', 'opt size' + (state.size[t] === v ? ' on' : ''));
     b.setAttribute('aria-label', ['Fino', 'Medio', 'Grueso'][i]);
