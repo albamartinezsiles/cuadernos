@@ -676,8 +676,14 @@ function buildDock() {
     if (own) b.firstChild.style.background = `linear-gradient(${own}, ${own}) padding-box, ${RAINBOW} border-box`;
     b.setAttribute('aria-label', 'Otro color'); b.title = 'Otro color';
     const inp = b.querySelector('input'); inp.value = own || ink();
-    inp.onchange = () => { state.custom[t] = state.colors[t] = inp.value; persist(); buildDock(); };
-    // primer toque: vuelve a su color; el segundo abre el selector
+    // sin rehacer el estuche: en el iPad quitar el input cierra el selector a mitad de elegir
+    inp.oninput = inp.onchange = () => {
+      const c = state.custom[t] = state.colors[t] = inp.value; persist();
+      b.firstChild.style.background = `linear-gradient(${c}, ${c}) padding-box, ${RAINBOW} border-box`;
+      dock.querySelectorAll('.opt:not(.size)').forEach(o => o.classList.toggle('on', o === b));
+      dock.querySelectorAll('.stroke').forEach(s => s.style.background = c);
+      dock.querySelector('.tool.on').innerHTML = penSvg(t, c, 72);
+    };
     b.onclick = e => { if (own && ink() !== own) { e.preventDefault(); state.colors[t] = own; persist(); buildDock(); } };
     dock.append(b, el('span', 'vsep'));
   }
