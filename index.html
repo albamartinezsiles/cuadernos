@@ -96,7 +96,7 @@
   .opt.on .sw { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--ink); }
   .opt.custom { position: relative; cursor: pointer; }
   .opt.custom .sw { border: 3px solid transparent; background: conic-gradient(#e0262f, #ffa53d, #ffe94a, #16924a, #1f5fd6, #7b3fc4, #e0262f); }
-  .opt.custom input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; border: 0; padding: 0; pointer-events: none; }
+  .palette { display: grid; grid-template-columns: repeat(10, 32px); gap: 8px; padding: 4px; }
   .opt.size.on { background: var(--tint-soft); }
   .stroke { display: block; width: 22px; border-radius: 99px; transform: rotate(-35deg); }
   .opt img { width: 30px; }
@@ -203,6 +203,10 @@ const PENS = {
   marca: [['Negro','#1d1d1f'],['Azul','#1f5fd6'],['Rojo','#e0262f'],['Verde','#16924a'],['Morado','#7b3fc4']],
   rotu: [['Amarillo','#ffe94a'],['Rosa','#ff7ac8'],['Verde','#8cf25a'],['Naranja','#ffa53d'],['Azul','#6cc6ff']],
 };
+// 10 tonos × 4 luces + grises, como la rejilla de colores del iPad
+const PALETTE = [0, 25, 45, 60, 95, 145, 185, 210, 260, 310].flatMap(h => [[90, 78], [80, 62], [70, 48], [65, 34]].map(([sa, l]) => `hsl(${h}, ${sa}%, ${l}%)`))
+  .reduce((rows, c, i) => (rows[i % 4].push(c), rows), [[], [], [], []]).flat()
+  .concat(['#ffffff', '#d4d4d4', '#a3a3a3', '#737373', '#525252', '#3a3a3a', '#262626', '#1d1d1f', '#111111', '#000000']);
 const TOOLS = { boli: 'Boli', pluma: 'Pluma', marca: 'Rotulador', rotu: 'Subrayador', goma: 'Goma', sticker: 'Stickers' };
 const SIZES = { boli: [1.8, 2.8, 4.5], pluma: [4, 7, 11], marca: [3, 5, 8], rotu: [10, 16, 24], goma: [12, 24, 45], sticker: [12, 18, 26] };
 const STICKERS = [...['rana','rana-flores','ranas-abrazo','rana-seta','rana-lectora','rana-te','rana-dormida','rana-estudia','rana-fresa',
@@ -671,20 +675,21 @@ function buildDock() {
     dock.append(b);
   }
   const RAINBOW = 'conic-gradient(#e0262f, #ffa53d, #ffe94a, #16924a, #1f5fd6, #7b3fc4, #e0262f)';
-  if (PENS[t]) { // color a elegir: abre el selector del sistema y se queda guardado para ese útil
-    const own = state.custom[t], b = el('label', 'opt custom' + (own && ink() === own ? ' on' : ''), '<span class="sw"></span><input type="color">');
-    if (own) b.firstChild.style.background = `linear-gradient(${own}, ${own}) padding-box, ${RAINBOW} border-box`;
+  if (PENS[t]) { // otro color: paleta propia (el selector del iPad se cierra al primer toque)
+    const own = state.custom[t], b = el('button', 'opt custom' + (own && ink() === own ? ' on' : ''), '<span class="sw"></span>');
+    const paint = c => b.firstChild.style.background = `linear-gradient(${c}, ${c}) padding-box, ${RAINBOW} border-box`;
+    if (own) paint(own);
     b.setAttribute('aria-label', 'Otro color'); b.title = 'Otro color';
-    const inp = b.querySelector('input'); inp.value = own || ink();
-    // sin rehacer el estuche: en el iPad quitar el input cierra el selector a mitad de elegir
-    inp.oninput = inp.onchange = () => {
-      const c = state.custom[t] = state.colors[t] = inp.value; persist();
-      b.firstChild.style.background = `linear-gradient(${c}, ${c}) padding-box, ${RAINBOW} border-box`;
-      dock.querySelectorAll('.opt:not(.size)').forEach(o => o.classList.toggle('on', o === b));
-      dock.querySelectorAll('.stroke').forEach(s => s.style.background = c);
-      dock.querySelector('.tool.on').innerHTML = penSvg(t, c, 72);
+    b.onclick = () => {
+      if (own && ink() !== own) { state.colors[t] = own; persist(); return buildDock(); } // primer toque: vuelve a su color
+      const box = swatches(PALETTE.map(c => [c, c]), ink(), c => { // la ventanita sigue abierta: se ve el color en el estuche
+        state.custom[t] = state.colors[t] = c; persist(); paint(c);
+        dock.querySelectorAll('.opt:not(.size)').forEach(o => o.classList.toggle('on', o === b));
+        dock.querySelectorAll('.stroke').forEach(x => x.style.background = c);
+        dock.querySelector('.tool.on').innerHTML = penSvg(t, c, 72);
+      }, c => c);
+      box.className = 'palette'; openPop(b, box);
     };
-    b.onclick = e => { if (own && ink() !== own) { e.preventDefault(); state.colors[t] = own; persist(); buildDock(); } };
     dock.append(b, el('span', 'vsep'));
   }
   SIZES[t].forEach((v, i) => {
