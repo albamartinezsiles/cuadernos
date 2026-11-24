@@ -407,15 +407,17 @@ const xBg = cBg.getContext('2d'), xInk = cInk.getContext('2d'), xLive = cLive.ge
 let dpr = 1, vw = 0, vh = 0, sr = { left: 0, top: 0 };
 let V = { S: 1, ox: 0, oy: 0 }, FIT = { ...V }, R0 = { ...V }, crispT;
 
-function fit() {
+function fit(reset) { // reset solo al abrir un cuaderno: girar el iPad o tocar el estuche no quita el zoom
   if (!page) return;
   dpr = Math.min(devicePixelRatio || 1, 2);
   const r = stage.getBoundingClientRect(); vw = r.width; vh = r.height; sr = r;
   for (const c of [cBg, cInk, cLive]) { c.width = Math.round(vw * dpr); c.height = Math.round(vh * dpr); }
-  const top = 52 + 16, bottom = state.min ? 20 : 102, side = 44;
+  const keep = !reset && zoomed();
+  const top = 52 + 16, bottom = 102, side = 44; // fijo: la hoja no da saltos al esconder o sacar el estuche
   const S = Math.min((vw - 2 * side) / W, (vh - top - bottom) / H);
   FIT = { S, ox: (vw - W * S) / 2, oy: top + (vh - top - bottom - H * S) / 2 };
-  V = { ...FIT }; renderAll();
+  if (keep) clampView(); else V = { ...FIT };
+  renderAll();
 }
 const zoomed = () => V.S > FIT.S * 1.02;
 function setT(ctx) { ctx.setTransform(dpr * V.S, 0, 0, dpr * V.S, dpr * V.ox, dpr * V.oy); }
@@ -515,7 +517,7 @@ function penDown(e) {
   if (e.target !== cLive || cur || turning) return;
   if (G) { G = null; touches.clear(); renderAll(); } // la palma no cuenta mientras escribe el lápiz
   if (sheet.style.transform) renderAll();
-  closePop();
+  closePop(); if (!state.min) setMin(true); // al empezar a escribir, el estuche se recoge solo
   const [x, y] = toPage(e), t = state.tool, pr = +pressure(e).toFixed(3);
   if (t === 'sticker') {
     const v = state.size.sticker, isImg = state.sticker.startsWith('img:');
@@ -705,7 +707,7 @@ function buildDock() {
   hide.onclick = () => setMin(true);
   dock.append(el('span', 'vsep'), hide);
 }
-function setMin(v) { state.min = v; persist(); closePop(); buildDock(); fit(); }
+function setMin(v) { state.min = v; persist(); closePop(); buildDock(); }
 $('#dockMini').onclick = () => setMin(false);
 
 /* ---------- Ventanitas flotantes ---------- */
@@ -840,7 +842,7 @@ async function openBook(b) {
   book = b; idx = Math.min(b.last ?? 1, b.pages.length - 1);
   $('#lib').classList.add('hidden'); $('#nb').classList.remove('hidden');
   $('#nbTitle').textContent = b.title;
-  buildDock(); await loadPage(); fit();
+  buildDock(); await loadPage(); fit(true);
 }
 async function closeBook() {
   closePop(); await flush();
