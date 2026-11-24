@@ -168,6 +168,7 @@
     <button class="icon" id="addPage" aria-label="Añadir hoja"></button>
     <button class="icon" id="more" aria-label="Más opciones"></button>
   </div>
+  <input type="file" id="imp" accept="application/pdf,image/*" multiple hidden>
   <div id="dock"></div>
   <button id="dockMini" class="hidden" aria-label="Mostrar el estuche"></button>
 </section>
@@ -288,10 +289,21 @@ function fillCover(ctx, v) {
   }
   ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
 }
+const BG = new Map();
+function bgImg(pg) {
+  let i = BG.get(pg.id);
+  if (!i) { i = new Image(); i.onload = () => { if (page === pg) renderBg(); }; i.src = pg.img; BG.set(pg.id, i); }
+  return i;
+}
 function drawBg(ctx, pg, bk) {
   ctx.save();
   if (pg.cover) { fillCover(ctx, bk.cover); return ctx.restore(); }
   ctx.fillStyle = pg.color; ctx.fillRect(0, 0, W, H);
+  if (pg.img) { // hoja importada de un PDF o una foto: la imagen ocupa la hoja, sin rayado
+    const im = bgImg(pg);
+    if (im.complete && im.naturalWidth) { const f = Math.min(W / im.naturalWidth, H / im.naturalHeight), w = im.naturalWidth * f, h = im.naturalHeight * f; ctx.drawImage(im, (W - w) / 2, (H - h) / 2, w, h); }
+    return ctx.restore();
+  }
   const lc = lum(pg.color) < .5 ? 'rgba(255,255,255,.18)' : 'rgba(40,60,110,.15)';
   ctx.strokeStyle = lc; ctx.lineWidth = 1.4; ctx.beginPath();
   if (pg.rule === 'rayas') for (let y = 140; y < H - 40; y += 48) { ctx.moveTo(60, y); ctx.lineTo(W - 60, y); }
@@ -729,7 +741,9 @@ function morePop(anchor) {
   const dl = el('button', 'danger', `${icon('trash')}<span class="grow">Borrar hoja</span>`);
   dl.disabled = idx === 0 || book.pages.length <= 2;
   dl.onclick = () => { closePop(); delPage(); };
-  m.append(share, dl);
+  const imp = el('button', '', `${icon('load')}<span class="grow">Importar PDF o fotos</span>`);
+  imp.onclick = () => { closePop(); $('#imp').click(); };
+  m.append(imp, share, dl);
   openPop(anchor, m, true);
 }
 
@@ -806,6 +820,51 @@ async function closeBook() {
   book = null; page = null;
   showLibrary();
 }
+/* ---------- Importar ----------
+   Cada página de un PDF (p. ej. una nota exportada desde Notas) o cada foto pasa a ser una hoja nueva tras la actual. */
+const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+let pdfjsP;
+const loadPdfjs = () => pdfjsP ??= new Promise((ok, ko) => {
+  const s = document.createElement('script'); s.src = PDFJS + 'pdf.min.js';
+  s.onload = () => { pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js'; ok(pdfjsLib); };
+  s.onerror = () => { pdfjsP = null; ko(); }; document.head.append(s);
+});
+const IMPW = 1400; // ancho de la imagen guardada: nítida con zoom sin llenar el iPad
+function toJpeg(src, w, h) { // src: algo que se pueda dibujar en un canvas
+  const c = document.createElement('canvas'), f = Math.min(1, IMPW / w);
+  c.width = Math.round(w * f); c.height = Math.round(h * f);
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(src, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', .85);
+}
+async function importFiles(files) {
+  const imgs = [], status = $('#pgNum');
+  try {
+    for (const f of files) {
+      if (f.type === 'application/pdf') {
+        const lib = await loadPdfjs(), doc = await lib.getDocument({ data: await f.arrayBuffer() }).promise;
+        for (let n = 1; n <= doc.numPages; n++) {
+          status.textContent = `Importando ${imgs.length + 1}…`;
+          const pg = await doc.getPage(n), vp = pg.getViewport({ scale: IMPW / pg.getViewport({ scale: 1 }).width });
+          const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+          await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+          imgs.push(toJpeg(c, c.width, c.height)); c.width = c.height = 0;
+        }
+      } else if (f.type.startsWith('image/')) {
+        status.textContent = `Importando ${imgs.length + 1}…`;
+        const im = new Image(), url = URL.createObjectURL(f);
+        await new Promise((ok, ko) => { im.onload = ok; im.onerror = ko; im.src = url; });
+        imgs.push(toJpeg(im, im.naturalWidth, im.naturalHeight)); URL.revokeObjectURL(url);
+      }
+    }
+  } catch { alert(pdfjsP ? 'No se ha podido abrir ese archivo.' : 'Para importar un PDF hace falta conexión a internet la primera vez.'); }
+  if (!imgs.length) return loadPage();
+  const pages = imgs.map(img => ({ id: uid(), color: '#ffffff', rule: 'lisa', img, items: [] }));
+  book.pages.splice(idx + 1, 0, ...pages.map(p => p.id));
+  for (const p of pages) { cache.set(p.id, p); dirty.add(p); }
+  await flush(); await loadPage(); turn(1);
+}
+$('#imp').onchange = e => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) importFiles(fs); };
+
 async function addPage() {
   const ref = page.cover ? null : page;
   const np = { id: uid(), color: ref ? ref.color : book.paper, rule: ref ? ref.rule : book.rule, items: [] };

@@ -1,5 +1,5 @@
 // Sube la versión al cambiar cualquier archivo para que el iPad coja lo nuevo.
-const V = 'cuadernos-v9';
+const V = 'cuadernos-v10';
 const FILES = [
  "./",
  "index.html",
