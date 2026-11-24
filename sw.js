@@ -1,5 +1,5 @@
 // Sube la versión al cambiar cualquier archivo para que el iPad coja lo nuevo.
-const V = 'cuadernos-v13';
+const V = 'cuadernos-v14';
 const FILES = [
  "./",
  "index.html",
@@ -26,10 +26,16 @@ const FILES = [
  "stickers/setas.webp",
  "stickers/venus.webp"
 ];
-self.addEventListener('install', e => e.waitUntil(caches.open(V).then(c => c.addAll(FILES))));
+// cache: 'reload' para no guardar una copia vieja del navegador; skipWaiting para no esperar a que iOS cierre la app.
+self.addEventListener('install', e => { self.skipWaiting(); e.waitUntil(caches.open(V).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' }))))); });
 self.addEventListener('activate', e => e.waitUntil(
-  caches.keys().then(ks => Promise.all(ks.filter(k => k !== V).map(k => caches.delete(k))))
+  caches.keys().then(ks => Promise.all(ks.filter(k => k !== V).map(k => caches.delete(k)))).then(() => self.clients.claim())
 ));
-self.addEventListener('fetch', e => e.respondWith(
-  caches.match(e.request).then(r => r || fetch(e.request))
-));
+// La página, primero de internet (así siempre está al día); sin conexión, la guardada. Lo demás, de la caché.
+self.addEventListener('fetch', e => {
+  if (e.request.mode === 'navigate') return e.respondWith(
+    fetch(e.request, { cache: 'no-store' }).then(r => { const c = r.clone(); caches.open(V).then(k => k.put('./', c)); return r; })
+      .catch(() => caches.match('./'))
+  );
+  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+});
