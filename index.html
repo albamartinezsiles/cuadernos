@@ -279,6 +279,11 @@ function stickerImg(name) {
   if (!IMG[name]) { const i = new Image(); i.src = `stickers/${name}.webp`; i.onload = () => { if (page) renderInk(); }; IMG[name] = i; }
   return IMG[name];
 }
+const PIC = new Map(); // fotos pegadas: la clave es su dataURL
+function picImg(src) {
+  if (!PIC.has(src)) { const i = new Image(); i.onload = () => { if (page) renderInk(); }; i.src = src; PIC.set(src, i); }
+  return PIC.get(src);
+}
 STICKERS.filter(s => s.startsWith('img:')).forEach(s => stickerImg(s.slice(4)));
 
 function coverCss(v) {
@@ -351,8 +356,8 @@ function renderStroke(ctx, it, st, upto) {
 function drawSticker(ctx, it) {
   const s = it.s;
   ctx.translate(it.x, it.y); ctx.rotate(it.r);
-  if (it.e.startsWith('img:')) {
-    const im = stickerImg(it.e.slice(4));
+  if (it.src || it.e.startsWith('img:')) {
+    const im = it.src ? picImg(it.src) : stickerImg(it.e.slice(4));
     if (!im.complete || !im.naturalWidth) return;
     const sc = ctx.getTransform().a, f = s / Math.max(im.naturalWidth, im.naturalHeight), w = im.naturalWidth * f, h = im.naturalHeight * f;
     ctx.shadowColor = 'rgba(90, 40, 60, .2)'; ctx.shadowBlur = s * .05 * sc; ctx.shadowOffsetY = s * .015 * sc;
@@ -561,13 +566,13 @@ function fingerDown(e) {
   touches.set(e.pointerId, { x: e.clientX - sr.left, y: e.clientY - sr.top });
   if (!G) G = { max: 0, t0: Date.now(), moved: false, mode: null, x0: e.clientX, y0: e.clientY };
   G.max = Math.max(G.max, touches.size);
-  if (G.mode === 'sticker') return;
+  if (G.mode === 'sticker') { if (touches.size === 2) { const [a, b] = [...touches.values()]; G.d0 = Math.hypot(a.x - b.x, a.y - b.y) || 1; G.s0 = G.it.s; } return; }
   if (touches.size === 1) {
     const [x, y] = toPage(e);
     for (let i = page.items.length - 1; i >= 0; i--) {
       const it = page.items[i];
-      if (it.t === 's' && Math.hypot(it.x - x, it.y - y) < it.s / 2) {
-        G.mode = 'sticker'; G.before = page.items; G.it = { ...it }; G.off = [it.x - x, it.y - y];
+      if (it.t === 's' && (it.src ? Math.abs(it.x - x) < it.s * Math.min(1, it.a) / 2 && Math.abs(it.y - y) < it.s * Math.min(1, 1 / it.a) / 2 : Math.hypot(it.x - x, it.y - y) < it.s / 2)) {
+        G.mode = 'sticker'; G.i = i; G.id = e.pointerId; G.before = page.items; G.it = { ...it }; G.off = [it.x - x, it.y - y];
         page.items = page.items.filter((_, j) => j !== i); renderInk(); schedule(); return;
       }
     }
@@ -581,7 +586,10 @@ function fingerMove(e) {
   const t = touches.get(e.pointerId); if (!t || !G) return;
   t.x = e.clientX - sr.left; t.y = e.clientY - sr.top;
   if (Math.hypot(e.clientX - G.x0, e.clientY - G.y0) > 12) G.moved = true;
-  if (G.mode === 'sticker') { const [x, y] = toPage(e); G.it.x = +(x + G.off[0]).toFixed(1); G.it.y = +(y + G.off[1]).toFixed(1); return schedule(); }
+  if (G.mode === 'sticker') {
+    if (touches.size >= 2 && G.d0) { const [a, b] = [...touches.values()]; G.it.s = +Math.min(W * 1.5, Math.max(40, G.s0 * Math.hypot(a.x - b.x, a.y - b.y) / G.d0)).toFixed(1); return schedule(); }
+    if (e.pointerId !== G.id) return;
+    const [x, y] = toPage(e); G.it.x = +(x + G.off[0]).toFixed(1); G.it.y = +(y + G.off[1]).toFixed(1); return schedule(); }
   if (G.mode === 'pan') { V = { ...V, ox: G.v0.ox + e.clientX - G.x0, oy: G.v0.oy + e.clientY - G.y0 }; return preview(); }
   if (G.mode === 'pinch' && touches.size >= 2) {
     const [a, b] = [...touches.values()], d = Math.hypot(a.x - b.x, a.y - b.y), m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -594,7 +602,9 @@ function fingerUp(e) {
   if (!touches.delete(e.pointerId) || !G || touches.size) return;
   const g = G; G = null;
   const dt = Date.now() - g.t0, dx = e.clientX - g.x0, dy = e.clientY - g.y0;
-  if (g.mode === 'sticker') { pushHist(g.before); page.items = [...page.items, g.it]; renderInk(); savePage(); return clear(xLive); }
+  // fuera de la hoja: se quita (deshacer la recupera); si no, vuelve a su capa y lo escrito encima sigue encima
+  if (g.mode === 'sticker') { const fuera = g.it.x < 0 || g.it.x > W || g.it.y < 0 || g.it.y > H;
+    pushHist(g.before); page.items = fuera ? page.items : page.items.toSpliced(g.i, 0, g.it); renderInk(); savePage(); return clear(xLive); }
   if (!g.moved && dt < 300) {
     if (g.max === 2) return undo();
     if (g.max >= 3) return redo();
@@ -774,7 +784,9 @@ function morePop(anchor) {
   dl.onclick = () => { closePop(); delPage(); };
   const imp = el('button', '', `${icon('load')}<span class="grow">Importar PDF o fotos</span>`);
   imp.onclick = () => { closePop(); $('#imp').click(); };
-  m.append(imp, share, dl);
+  const paste = el('button', '', `${icon('load')}<span class="grow">Pegar imagen</span>`);
+  paste.disabled = idx === 0; paste.onclick = () => { closePop(); pasteImage(); };
+  m.append(paste, imp, share, dl);
   openPop(anchor, m, true);
 }
 
@@ -852,7 +864,7 @@ async function closeBook() {
   showLibrary();
 }
 /* ---------- Importar ----------
-   Cada página de un PDF (p. ej. una nota exportada desde Notas) o cada foto pasa a ser una hoja nueva tras la actual. */
+   Cada página de un PDF (p. ej. una nota exportada desde Notas) pasa a ser una hoja nueva tras la actual; las fotos van sueltas en la hoja. */
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 let pdfjsP;
 const loadPdfjs = () => pdfjsP ??= new Promise((ok, ko) => {
@@ -867,6 +879,32 @@ function toJpeg(src, w, h) { // src: algo que se pueda dibujar en un canvas
   const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(src, 0, 0, c.width, c.height);
   return c.toDataURL('image/jpeg', .85);
 }
+// Foto suelta encima de la hoja actual, en el centro de lo que se ve: se mueve con un dedo y se agranda pellizcando.
+async function addPic(blob, n = 0) {
+  if (!page || page.cover) return alert('Las fotos se pegan en una hoja, no en la portada.');
+  const im = new Image(), url = URL.createObjectURL(blob);
+  try { await new Promise((ok, ko) => { im.onload = ok; im.onerror = ko; im.src = url; }); } catch { return alert('No se ha podido abrir esa imagen.'); } finally { URL.revokeObjectURL(url); }
+  const a = im.naturalWidth / im.naturalHeight, f = Math.min(1, 1000 / Math.max(im.naturalWidth, im.naturalHeight));
+  const c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * f); c.height = Math.round(im.naturalHeight * f);
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height);
+  const it = { t: 's', e: 'foto', src: c.toDataURL('image/jpeg', .85), a: +a.toFixed(4), s: Math.round(W * .55),
+    x: +((vw / 2 - V.ox) / V.S + n * 30).toFixed(1), y: +((vh / 2 - V.oy) / V.S + n * 30).toFixed(1), r: 0 };
+  pushHist(page.items); page.items = [...page.items, it]; renderInk(); savePage();
+}
+async function pasteImage() {
+  try {
+    for (const item of await navigator.clipboard.read()) {
+      const type = item.types.find(t => t.startsWith('image/'));
+      if (type) return addPic(await item.getType(type));
+    }
+    alert('No hay ninguna imagen copiada.');
+  } catch { alert('No se ha podido pegar. Copia la imagen otra vez y prueba de nuevo.'); }
+}
+document.addEventListener('paste', e => { // con teclado: Cmd+V
+  if (!book) return;
+  const f = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
+  if (f) { e.preventDefault(); addPic(f); }
+});
 async function importFiles(files) {
   const imgs = [], status = $('#pgNum');
   try {
@@ -880,12 +918,7 @@ async function importFiles(files) {
           await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
           imgs.push(toJpeg(c, c.width, c.height)); c.width = c.height = 0;
         }
-      } else if (f.type.startsWith('image/')) {
-        status.textContent = `Importando ${imgs.length + 1}…`;
-        const im = new Image(), url = URL.createObjectURL(f);
-        await new Promise((ok, ko) => { im.onload = ok; im.onerror = ko; im.src = url; });
-        imgs.push(toJpeg(im, im.naturalWidth, im.naturalHeight)); URL.revokeObjectURL(url);
-      }
+      } else if (f.type.startsWith('image/')) await addPic(f, files.indexOf(f)); // las fotos van sueltas en la hoja
     }
   } catch { alert(pdfjsP ? 'No se ha podido abrir ese archivo.' : 'Para importar un PDF hace falta conexión a internet la primera vez.'); }
   if (!imgs.length) return loadPage();
