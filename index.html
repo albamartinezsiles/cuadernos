@@ -96,6 +96,8 @@
   .opt.on .sw { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--ink); }
   .opt.custom { position: relative; cursor: pointer; }
   .opt.custom .sw { border: 3px solid transparent; background: conic-gradient(#e0262f, #ffa53d, #ffe94a, #16924a, #1f5fd6, #7b3fc4, #e0262f); }
+  .pastebox { width: 260px; padding: 30px 16px; text-align: center; border: 2px dashed var(--line); border-radius: 12px; color: var(--muted); outline: 0;
+    -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; caret-color: transparent; }
   .palette { display: grid; grid-template-columns: repeat(10, 32px); gap: 8px; padding: 4px; }
   .opt.size.on { background: var(--tint-soft); }
   .stroke { display: block; width: 22px; border-radius: 99px; transform: rotate(-35deg); }
@@ -897,19 +899,20 @@ async function addPic(blob, n = 0) {
     x: +((vw / 2 - V.ox) / V.S + n * 30).toFixed(1), y: +((vh / 2 - V.oy) / V.S + n * 30).toFixed(1), r: 0 };
   pushHist(page.items); page.items = [...page.items, it]; renderInk(); savePage();
 }
-async function pasteImage() {
-  try {
-    for (const item of await navigator.clipboard.read()) {
-      const type = item.types.find(t => t.startsWith('image/'));
-      if (type) return addPic(await item.getType(type));
-    }
-    alert('No hay ninguna imagen copiada.');
-  } catch { alert('No se ha podido pegar. Copia la imagen otra vez y prueba de nuevo.'); }
+// Pegar como en cualquier app del iPad: recuadro editable (sin teclado) → mantener el dedo → «Pegar».
+// navigator.clipboard.read() en Safari pide permiso con una burbuja que se pierde: no es fiable.
+function pasteImage() {
+  const box = el('div', 'pastebox', 'Mantén el dedo aquí y toca <b>Pegar</b>');
+  box.contentEditable = 'true'; box.setAttribute('inputmode', 'none');
+  box.oninput = () => box.innerHTML = 'Mantén el dedo aquí y toca <b>Pegar</b>'; // si se cuela texto, fuera
+  openPop($('#more'), box, true);
 }
-document.addEventListener('paste', e => { // con teclado: Cmd+V
+document.addEventListener('paste', e => { // recuadro de pegar o teclado (Cmd+V)
   if (!book) return;
-  const f = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
-  if (f) { e.preventDefault(); addPic(f); }
+  const items = [...(e.clipboardData?.items || [])], img = items.find(i => i.kind === 'file' && i.type.startsWith('image/'));
+  e.preventDefault();
+  if (img) { closePop(); return addPic(img.getAsFile()); }
+  if ($('.pastebox')) alert('Lo copiado no es una imagen. En Fotos o en Safari, mantén el dedo sobre la imagen y toca «Copiar».');
 });
 async function importFiles(files) {
   const imgs = [], status = $('#pgNum');
