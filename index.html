@@ -52,6 +52,9 @@
   .meta .name { font-size: 15px; font-weight: 600; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .meta .date { font-size: 13px; color: var(--muted); }
   .meta .icon { width: 32px; height: 32px; margin-top: -6px; color: var(--muted); }
+  .hint { display: flex; align-items: center; gap: 12px; margin: 8px 40px 0; padding: 10px 10px 10px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-size: 15px; }
+  .hint span { flex: 1; }
+  .hint button { color: var(--tint); font-weight: 600; padding: 6px 8px; }
   .empty { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 60px 0; text-align: center; }
   .empty img { width: 140px; }
   .empty p { margin: 0; font-size: 17px; font-weight: 600; }
@@ -143,6 +146,7 @@
       <button class="primary" id="newBook"></button>
     </div>
   </header>
+  <div id="hint" class="hint hidden"></div>
   <div id="shelf"></div>
   <input type="file" id="file" accept="application/json,.json" hidden>
 </section>
@@ -787,6 +791,7 @@ async function showLibrary() {
     e.querySelector('.meta .icon').onclick = () => bookDialog(b);
     shelf.append(e);
   }
+  showHint();
 }
 async function openBook(b) {
   book = b; idx = Math.min(b.last ?? 1, b.pages.length - 1);
@@ -816,10 +821,31 @@ async function delPage() {
   idx = Math.min(idx, book.pages.length - 1);
   await flush(); await loadPage(); renderAll();
 }
+// Devuelve false solo si la persona cancela el menú de compartir.
 async function shareOrDownload(blob, name) {
   const f = new File([blob], name, { type: blob.type });
-  if (navigator.canShare?.({ files: [f] })) { try { await navigator.share({ files: [f] }); } catch {} return; }
+  if (navigator.canShare?.({ files: [f] })) {
+    try { await navigator.share({ files: [f] }); return true; }
+    catch (e) { if (e.name === 'AbortError') return false; } // otro error (p. ej. sin permiso): se descarga
+  }
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  return true;
+}
+// Copia de seguridad: el aviso de la estantería recuerda hacerla si hace más de una semana.
+const lastBackup = () => { try { return +localStorage.getItem('lastBackup') || 0; } catch { return 0; } };
+async function backup() {
+  const data = { v: 1, books: await getAll('books'), pages: await getAll('pages') };
+  const ok = await shareOrDownload(new Blob([JSON.stringify(data)], { type: 'application/json' }), `cuadernos-${new Date().toISOString().slice(0, 10)}.json`);
+  if (ok) { try { localStorage.setItem('lastBackup', Date.now()); } catch {} }
+  showHint();
+}
+function showHint() {
+  const h = $('#hint'), t = lastBackup(), days = Math.floor((Date.now() - t) / 864e5);
+  const due = books.length && (!t || days >= 7);
+  h.classList.toggle('hidden', !due);
+  if (!due) return;
+  h.innerHTML = `<span>${t ? `Última copia: hace ${days} días` : 'Aún no has guardado ninguna copia'}</span>`;
+  const b = el('button', '', 'Guardar copia'); b.onclick = backup; h.append(b);
 }
 
 $('#back').innerHTML = icon('back') + 'Cuadernos';
@@ -829,11 +855,7 @@ $('#libMore').innerHTML = icon('more');
 $('#libMore').onclick = e => {
   const m = el('div', 'menu');
   const save = el('button', '', `${icon('share')}<span class="grow">Guardar copia</span>`);
-  save.onclick = async () => {
-    closePop();
-    const data = { v: 1, books: await getAll('books'), pages: await getAll('pages') };
-    shareOrDownload(new Blob([JSON.stringify(data)], { type: 'application/json' }), `cuadernos-${new Date().toISOString().slice(0, 10)}.json`);
-  };
+  save.onclick = () => { closePop(); backup(); };
   const load = el('button', '', `${icon('load')}<span class="grow">Cargar copia</span>`);
   load.onclick = () => { closePop(); $('#file').click(); };
   m.append(save, load); openPop(e.currentTarget, m, true);
