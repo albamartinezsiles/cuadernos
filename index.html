@@ -398,9 +398,9 @@ function drawItem(ctx, it) {
 // Página completa en un lienzo aparte (miniatura de portada y «Compartir»): fondo + tinta en capas, como en pantalla.
 function compose(pg, bk, px) {
   const sc = px / W, out = document.createElement('canvas'); out.width = px; out.height = Math.round(H * sc);
-  const o = out.getContext('2d'); o.setTransform(sc, 0, 0, sc, 0, 0); drawBg(o, pg, bk);
+  const o = out.getContext('2d'); o.setTransform(sc, 0, 0, sc, 0, 0); drawBg(o, pg, bk); for (const it of pg.items) if (it.t === 's') drawItem(o, it);
   const layer = document.createElement('canvas'); layer.width = out.width; layer.height = out.height;
-  const l = layer.getContext('2d'); l.setTransform(sc, 0, 0, sc, 0, 0); for (const it of pg.items) drawItem(l, it);
+  const l = layer.getContext('2d'); l.setTransform(sc, 0, 0, sc, 0, 0); for (const it of pg.items) if (it.t !== 's') drawItem(l, it);
   o.setTransform(1, 0, 0, 1, 0, 0); o.drawImage(layer, 0, 0);
   return out;
 }
@@ -432,11 +432,12 @@ function renderBg() {
   const c = xBg; clear(c); setT(c);
   c.save(); c.shadowColor = 'rgba(31, 29, 26, .18)'; c.shadowBlur = 10 * dpr; c.shadowOffsetY = 2 * dpr; c.fillStyle = '#fff'; pagePath(c); c.fill(); c.restore();
   c.save(); pagePath(c); c.clip(); drawBg(c, page, book);
+  for (const it of page.items) if (it.t === 's') drawItem(c, it); // fotos y stickers van pegados al papel: la goma no los borra
   const g = c.createLinearGradient(0, 0, 34, 0); g.addColorStop(0, 'rgba(0,0,0,.07)'); g.addColorStop(1, 'rgba(0,0,0,0)');
   c.fillStyle = g; c.fillRect(0, 0, 34, H); c.restore();
 }
-function renderInk() { const c = xInk; clear(c); if (!page) return; setT(c); c.save(); pagePath(c); c.clip(); for (const it of page.items) drawItem(c, it); c.restore(); }
-function renderAll() { clearTimeout(crispT); sheet.style.transition = ''; sheet.style.transform = ''; R0 = { ...V }; $('#nb').classList.toggle('zoomed', zoomed()); renderBg(); renderInk(); clear(xLive); }
+function renderInk() { const c = xInk; clear(c); if (!page) return; renderBg(); setT(c); c.save(); pagePath(c); c.clip(); for (const it of page.items) if (it.t !== 's') drawItem(c, it); c.restore(); }
+function renderAll() { clearTimeout(crispT); sheet.style.transition = ''; sheet.style.transform = ''; R0 = { ...V }; $('#nb').classList.toggle('zoomed', zoomed()); renderInk(); clear(xLive); }
 // Durante el gesto se mueve la imagen ya pintada (rápido); al parar, se repinta nítida.
 function preview(anim) {
   const r = V.S / R0.S;
