@@ -425,6 +425,9 @@ function fit(reset) { // reset solo al abrir un cuaderno: girar el iPad o tocar 
   renderAll();
 }
 const zoomed = () => V.S > FIT.S * 1.02;
+// Si el tamaño cambió sin avisar (iPad girado mientras la app estaba en segundo plano), se recoloca antes de pintar.
+function checkSize() { const r = stage.getBoundingClientRect(); if (r.width !== vw || r.height !== vh || r.left !== sr.left || r.top !== sr.top) fit(); }
+new ResizeObserver(() => { if (book) fit(); }).observe(stage);
 function setT(ctx) { ctx.setTransform(dpr * V.S, 0, 0, dpr * V.S, dpr * V.ox, dpr * V.oy); }
 function clear(ctx) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height); }
 function pagePath(ctx) { ctx.beginPath(); const r = [2 / V.S, 6 / V.S, 6 / V.S, 2 / V.S]; ctx.roundRect ? ctx.roundRect(0, 0, W, H, r) : ctx.rect(0, 0, W, H); }
@@ -521,6 +524,7 @@ function liveFrame() {
 }
 function penDown(e) {
   if (e.target !== cLive || cur || turning) return;
+  checkSize();
   if (G) { G = null; touches.clear(); renderAll(); } // la palma no cuenta mientras escribe el lápiz
   if (sheet.style.transform) renderAll();
   closePop(); if (!state.min) setMin(true); // al empezar a escribir, el estuche se recoge solo
@@ -564,6 +568,7 @@ function penEnd(e) {
 const touches = new Map(); let G = null, lastTap = { t: 0 };
 function fingerDown(e) {
   if (cur || Date.now() - penUp < 400) return;
+  if (!touches.size) checkSize();
   touches.set(e.pointerId, { x: e.clientX - sr.left, y: e.clientY - sr.top });
   if (!G) G = { max: 0, t0: Date.now(), moved: false, mode: null, x0: e.clientX, y0: e.clientY };
   G.max = Math.max(G.max, touches.size);
