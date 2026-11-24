@@ -566,13 +566,14 @@ function penEnd(e) {
 
 /* ---------- Dedos ----------
    Un dedo: pasa hoja deslizando, mueve la hoja con zoom o arrastra un sticker. Dos dedos: zoom y desplazamiento.
-   Doble toque: acerca o vuelve a la hoja entera. Toque con dos dedos: deshacer; con tres: rehacer. */
+   Doble toque: acerca o vuelve a la hoja entera. Toque con dos dedos: deshacer; con tres: rehacer.
+   Dedo quieto medio segundo: sobre una foto o sticker, «Quitar»; en un hueco, pegar una imagen ahí. */
 const touches = new Map(); let G = null, lastTap = { t: 0 };
 function fingerDown(e) {
   if (cur || Date.now() - penUp < 400) return;
   if (!touches.size) checkSize();
   touches.set(e.pointerId, { x: e.clientX - sr.left, y: e.clientY - sr.top });
-  if (!G) G = { max: 0, t0: Date.now(), moved: false, mode: null, x0: e.clientX, y0: e.clientY };
+  if (!G) { G = { max: 0, t0: Date.now(), moved: false, mode: null, x0: e.clientX, y0: e.clientY }; const g = G, at = toPage(e); g.lp = setTimeout(() => longPress(g, at), 500); }
   G.max = Math.max(G.max, touches.size);
   if (G.mode === 'sticker') { if (touches.size === 2) { const [a, b] = [...touches.values()]; G.d0 = Math.hypot(a.x - b.x, a.y - b.y) || 1; G.s0 = G.it.s; } return; }
   if (touches.size === 1) {
@@ -589,6 +590,16 @@ function fingerDown(e) {
     const [a, b] = [...touches.values()];
     G.mode = 'pinch'; G.d0 = Math.hypot(a.x - b.x, a.y - b.y) || 1; G.m0 = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; G.v0 = { ...V };
   }
+}
+function longPress(g, at) {
+  if (G !== g || g.moved || g.max > 1 || page.cover) return;
+  G = null; touches.clear(); clear(xLive);
+  const spot = { getBoundingClientRect: () => new DOMRect(sr.left + V.ox + at[0] * V.S, sr.top + V.oy + at[1] * V.S, 0, 0), contains: () => false };
+  if (g.mode !== 'sticker') return pasteImage(spot, at);
+  page.items = g.before; renderInk(); // la foto vuelve a su sitio mientras se decide
+  const it = g.before[g.i], m = el('div', 'menu'), del = el('button', 'danger', `${icon('trash')}<span class="grow">Quitar</span>`);
+  del.onclick = () => { closePop(); pushHist(page.items); page.items = page.items.filter(x => x !== it); renderInk(); savePage(); };
+  m.append(del); openPop(spot, m);
 }
 function fingerMove(e) {
   const t = touches.get(e.pointerId); if (!t || !G) return;
@@ -888,7 +899,7 @@ function toJpeg(src, w, h) { // src: algo que se pueda dibujar en un canvas
   return c.toDataURL('image/jpeg', .85);
 }
 // Foto suelta encima de la hoja actual, en el centro de lo que se ve: se mueve con un dedo y se agranda pellizcando.
-async function addPic(blob, n = 0) {
+async function addPic(blob, n = 0, at = null) {
   if (!page || page.cover) return alert('Las fotos se pegan en una hoja, no en la portada.');
   const im = new Image(), url = URL.createObjectURL(blob);
   try { await new Promise((ok, ko) => { im.onload = ok; im.onerror = ko; im.src = url; }); } catch { return alert('No se ha podido abrir esa imagen.'); } finally { URL.revokeObjectURL(url); }
@@ -896,22 +907,24 @@ async function addPic(blob, n = 0) {
   const c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * f); c.height = Math.round(im.naturalHeight * f);
   const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height);
   const it = { t: 's', e: 'foto', src: c.toDataURL('image/jpeg', .85), a: +a.toFixed(4), s: Math.round(W * .55),
-    x: +((vw / 2 - V.ox) / V.S + n * 30).toFixed(1), y: +((vh / 2 - V.oy) / V.S + n * 30).toFixed(1), r: 0 };
+    x: +((at ? at[0] : (vw / 2 - V.ox) / V.S) + n * 30).toFixed(1), y: +((at ? at[1] : (vh / 2 - V.oy) / V.S) + n * 30).toFixed(1), r: 0 };
   pushHist(page.items); page.items = [...page.items, it]; renderInk(); savePage();
 }
 // Pegar como en cualquier app del iPad: recuadro editable (sin teclado) → mantener el dedo → «Pegar».
 // navigator.clipboard.read() en Safari pide permiso con una burbuja que se pierde: no es fiable.
-function pasteImage() {
+let pasteAt = null; // dónde se pidió pegar (en coordenadas de la hoja); sin sitio, en el centro de lo que se ve
+function pasteImage(anchor = $('#more'), at = null) {
+  pasteAt = at;
   const box = el('div', 'pastebox', 'Mantén el dedo aquí y toca <b>Pegar</b>');
   box.contentEditable = 'true'; box.setAttribute('inputmode', 'none');
   box.oninput = () => box.innerHTML = 'Mantén el dedo aquí y toca <b>Pegar</b>'; // si se cuela texto, fuera
-  openPop($('#more'), box, true);
+  openPop(anchor, box, anchor.id === 'more');
 }
 document.addEventListener('paste', e => { // recuadro de pegar o teclado (Cmd+V)
   if (!book) return;
   const items = [...(e.clipboardData?.items || [])], img = items.find(i => i.kind === 'file' && i.type.startsWith('image/'));
   e.preventDefault();
-  if (img) { closePop(); return addPic(img.getAsFile()); }
+  if (img) { closePop(); const at = pasteAt; pasteAt = null; return addPic(img.getAsFile(), 0, at); }
   if ($('.pastebox')) alert('Lo copiado no es una imagen. En Fotos o en Safari, mantén el dedo sobre la imagen y toca «Copiar».');
 });
 async function importFiles(files) {
